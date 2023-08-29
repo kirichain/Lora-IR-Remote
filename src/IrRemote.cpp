@@ -15,19 +15,20 @@
 IRrecv irrecv(14, 1024, 50, true);
 decode_results results;
 ir_command command;
-StaticJsonDocument<384> jsonDocCommand;
+StaticJsonDocument<38400> jsonDocCommand;
 
 String output, jsonCommand;
 
 bool isLastReceived = false;
+bool hasState;
 byte pressedCount;
 
 IrRemote::IrRemote() {
     jsonDocCommand["protocol"] = "";
-    jsonDocCommand["powerOnRawArray"] = "[]";
-    jsonDocCommand["powerOffRawArray"] = "[]";
-    jsonDocCommand["temperatureIncrementRawArray"] = "[]";
-    jsonDocCommand["temperatureDecrementRawArray"] = "[]";
+    jsonDocCommand["powerOnRawArray"] = "";
+    jsonDocCommand["powerOffRawArray"] = "";
+    jsonDocCommand["temperatureIncrementRawArray"] = "";
+    jsonDocCommand["temperatureDecrementRawArray"] = "";
     jsonDocCommand["userDefined1RawArray"] = "";
     jsonDocCommand["userDefined2RawArray"] = "";
     jsonDocCommand["userDefined3RawArray"] = "";
@@ -122,6 +123,7 @@ void IrRemote::learnIrCommand(ir_command_type commandType) {
         ++pressedCount;
     } else {
         Serial.println(F("Reached 3 times. Now start saving command as json string"));
+        jsonDocCommand.clear();
         saveIrCommand(ir_command_type::POWER_ON);
         pressedCount = 0;
     }
@@ -129,6 +131,7 @@ void IrRemote::learnIrCommand(ir_command_type commandType) {
         // Check if the IR code has been received.
         if (irrecv.decode(&results)) {
             isLastReceived = true;
+            hasState = hasACState(results.decode_type);
             // The capture has stopped at this point.
             decode_type_t protocol = results.decode_type;
             if (protocol == decode_type_t::UNKNOWN) {
@@ -203,6 +206,7 @@ void IrRemote::saveIrCommand(ir_command_type commandType) {
             jsonDocCommand["userDefined8Hex"] = getHexAsString();
             break;
     }
+    jsonCommand = "";
     serializeJson(jsonDocCommand, jsonCommand);
     Serial.print(F("Serialized json string command:"));
     Serial.println(jsonCommand);
@@ -239,5 +243,28 @@ String IrRemote::getRawArrayAsString() {
 
 String IrRemote::getHexAsString() {
     output = "";
+    // Now dump "known" codes
+    if (results.decode_type != UNKNOWN) {
+        if (hasState) {
+#if DECODE_AC
+            uint16_t nbytes = ceil(static_cast<float>(results.bits) / 8.0);
+            for (uint16_t i = 0; i < nbytes; i++) {
+                output += F("0x");
+                if (results.state[i] < 0x10) output += '0';
+                output += uint64ToString(results.state[i], 16);
+                if (i < nbytes - 1) output += kCommaSpaceStr;
+            }
+#endif  // DECODE_AC
+        } else {
+            // Simple protocols
+            // Some protocols have an address &/or command.
+            // NOTE: It will ignore the atypical case when a message has been
+            // decoded but the address & the command are both 0.
+            if (results.address > 0 || results.command > 0) {
+                output += F("0x");
+                output += uint64ToString(results.command, 16);
+            }
+        }
+    }
     return output;
 }
