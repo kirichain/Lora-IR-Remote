@@ -11,13 +11,63 @@
 #include <IRtext.h>
 #include "ArduinoJson.h"
 #include "IrRemote.h"
+#include "SPIFFS.h"
 
-IRrecv irrecv(14, 1024, 50, true);
+const uint16_t kRecvPin = 14;
+const uint32_t kBaudRate = 115200;
+const uint16_t kCaptureBufferSize = 1024;
+const uint8_t kTimeout = 50;
+const uint16_t kMinUnknownSize = 12;
+const uint8_t kTolerancePercentage = kTolerance;  // kTolerance is normally 25%
+const uint16_t kIrLed = 4;  // The ESP GPIO pin to use that controls the IR LED.
+
+const String commandTypes[13] = {"POWER_ON",
+                                 "POWER_OFF",
+                                 "CHANGE_TEMPERATURE",
+                                 "INCREASE_TEMPERATURE",
+                                 "DECREASE_TEMPERATURE",
+                                 "USER_DEFINED_1",
+                                 "USER_DEFINED_2",
+                                 "USER_DEFINED_3",
+                                 "USER_DEFINED_4",
+                                 "USER_DEFINED_5",
+                                 "USER_DEFINED_6",
+                                 "USER_DEFINED_7",
+                                 "USER_DEFINED_8",
+};
+const String protocols[128] = {"UNKNOWN", "UNUSED", "RC5", "RC6", "NEC", "SONY", "PANASONIC", "JVC", "SAMSUNG",
+                               "WHYNTER",
+                               "AIWA_RC_T501", "LG", "SANYO", "MITSUBISHI", "DISH", "SHARP", "COOLIX", "DAIKIN",
+                               "DENON",
+                               "KELVINATOR", "SHERWOOD", "MITSUBISHI_AC", "RCMM", "SANYO_LC7461", "RC5X", "GREE",
+                               "PRONTO", "NEC_LIKE", "ARGO", "TROTEC", "NIKAI", "RAW", "GLOBALCACHE", "TOSHIBA_AC",
+                               "FUJITSU_AC", "MIDEA", "MAGIQUEST", "LASERTAG", "CARRIER_AC", "HAIER_AC", "MITSUBISHI2",
+                               "HITACHI_AC", "HITACHI_AC1", "HITACHI_AC2", "GICABLE", "HAIER_AC_YRW02", "WHIRLPOOL_AC",
+                               "SAMSUNG_AC", "LUTRON", "ELECTRA_AC", "PANASONIC_AC", "PIONEER", "LG2", "MWM", "DAIKIN2",
+                               "VESTEL_AC", "TECO", "SAMSUNG36", "TCL112AC", "LEGOPF", "MITSUBISHI_HEAVY_88",
+                               "MITSUBISHI_HEAVY_152", "DAIKIN216", "SHARP_AC", "GOODWEATHER", "INAX", "DAIKIN160",
+                               "NEOCLIMA",
+                               "DAIKIN176", "DAIKIN128", "AMCOR", "DAIKIN152", "MITSUBISHI136", "MITSUBISHI112",
+                               "HITACHI_AC424",
+                               "SONY_38K", "EPSON", "SYMPHONY", "HITACHI_AC3", "DAIKIN64", "AIRWELL",
+                               "DELONGHI_AC", "DOSHISHA", "MULTIBRACKETS", "CARRIER_AC40", "CARRIER_AC64",
+                               "HITACHI_AC344", "CORONA_AC", "MIDEA24", "ZEPEAL", "SANYO_AC", "VOLTAS", "METZ",
+                               "TRANSCOLD", "TECHNIBEL_AC", "MIRAGE", "ELITESCREENS", "PANASONIC_AC32", "MILESTAG2",
+                               "ECOCLIM", "XMP",
+                               "TRUMA", "HAIER_AC176", "TEKNOPOINT", "KELON", "TROTEC_3550", "SANYO_AC88", "BOSE",
+                               "ARRIS",
+                               "RHOSS", "AIRTON", "COOLIX48", "HITACHI_AC264", "KELON168", "HITACHI_AC296", "DAIKIN200",
+                               "HAIER_AC160", "CARRIER_AC128", "TOTO", "CLIMABUTLER", "TCL96AC", "BOSCH144",
+                               "SANYO_AC152", "DAIKIN312", "GORENJE", "WOWWEE", "CARRIER_AC84", "YORK"
+};
+
+IRac ac(kIrLed);  // Create a A/C object using GPIO to sending messages with.
+IRrecv irrecv(kRecvPin, kCaptureBufferSize, kTimeout, true);
 decode_results results;
 ir_command command;
-StaticJsonDocument<38400> jsonDocCommand;
+StaticJsonDocument<50000> jsonDocCommand;
 
-String output, jsonCommand;
+String output, jsonCommand, fileContent;
 
 bool isLastReceived = false;
 bool hasState;
@@ -103,8 +153,39 @@ void IrRemote::dump() {
     }
 }
 
-void IrRemote::sendIrCommand(decode_type_t protocol, byte degree, ir_command_type commandType,
+void IrRemote::sendIrCommand(decode_type_t protocol, float degree, ir_command_type commandType,
                              ir_command_sending_option sending_option) {
+    if (protocol != decode_type_t::UNKNOWN) {
+        Serial.println(F("Protocol defined. Checking if we can send"));
+        if (ac.isProtocolSupported(protocol)) {
+            Serial.println("Protocol " + String(protocol) + " / " +
+                           typeToString(protocol) + " is supported.");
+            switch (commandType) {
+                case POWER_ON:
+                    ac.next.power = true;
+                    break;
+                case POWER_OFF:
+                    ac.next.power = false;
+                    break;
+                case CHANGE_TEMPERATURE:
+                    ac.next.degrees = degree;
+                    break;
+            }
+            ac.next.mode = stdAc::opmode_t::kCool;  // Run in cool mode initially.
+            ac.next.fanspeed = stdAc::fanspeed_t::kMedium;  // Start the fan at medium.
+            ac.next.swingv = stdAc::swingv_t::kOff;  // Don't swing the fan up or down.
+            ac.next.swingh = stdAc::swingh_t::kOff;  // Don't swing the fan left or right.
+            ac.next.protocol = protocol;  // Change the protocol used.
+            ac.sendAc();  // Have the IRac class create and send a message.
+            Serial.println(F("Command has been sent"));
+        } else {
+            Serial.println(F("Protocol is not supported. Abort sending"));
+        }
+    } else {
+        Serial.println(F("Unknown protocol. Start sending raw/hex with associated command from stored list"));
+        getSavedIrCommand(commandType);
+        Serial.println(F("Command has been sent"));
+    }
 }
 
 void IrRemote::learnIrCommand(ir_command_type commandType) {
@@ -212,13 +293,43 @@ void IrRemote::saveIrCommand(ir_command_type commandType) {
     Serial.println(jsonCommand);
 }
 
-void IrRemote::getSavedIrCommand() {
-
+void IrRemote::getSavedIrCommand(ir_command_type commandType) {
+    if (isFsAvailable()) {
+        Serial.println(F("Command storage reading is ok. Start getting command"));
+        Serial.println(F("Storage list: "));
+        Serial.println(fileContent);
+        deserializeJsonContent(fileContent);
+    }
 }
 
 void IrRemote::displayRawArrayAsString() {
     getRawArrayAsString();
     Serial.println(output);
+}
+
+void IrRemote::deserializeJsonContent(String jsonContent) {
+
+}
+
+bool isFsAvailable() {
+    fileContent = "";
+
+    if(!SPIFFS.begin(true)){
+        Serial.println("An Error has occurred while mounting SPIFFS");
+        return false;
+    }
+
+    File file = SPIFFS.open("/test_example.txt");
+    if(!file){
+        Serial.println("Failed to open file for reading");
+        return false;
+    } else {
+        while(file.available()){
+            fileContent += file.read();
+        }
+        file.close();
+        return true;
+    }
 }
 
 String IrRemote::getRawArrayAsString() {
