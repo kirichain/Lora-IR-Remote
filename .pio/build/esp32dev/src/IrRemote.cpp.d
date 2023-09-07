@@ -187,4 +187,6 @@
  .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson.h \
  .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson.hpp \
  .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/Configuration.hpp \
- src/IrRemote.h
+ src/IrRemote.h \
+ C:/Users/Tan/.platformio/packages/framework-arduinoespressif32/libraries/SPIFFS/src/SPIFFS.h \
+ C:/Users/Tan/.platformio/packages/framework-arduinoespressif32/libraries/FS/src/FS.h

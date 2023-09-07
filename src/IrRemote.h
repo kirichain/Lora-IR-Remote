@@ -58,15 +58,20 @@ public:
 
     void saveIrCommand(ir_command_type commandType);
 
-    void getSavedIrCommand(ir_command_type commandType);
+    void getSavedIrCommands();
 
     void displayRawArrayAsString();
 
-    void deserializeJsonContent(String jsonString);
+    void deserializeJsonString(String jsonString);
 
-    bool isFsAvailable() {
+    void writeToFile(String content);
 
-    }
+    bool allocateRawMemory(char *element);
+
+    bool isFsAvailable(char *mode);
+
+    //decode_type_t matchProtocol(char* protocolAsString);
+
     String getRawArrayAsString();
 
     String getHexAsString();

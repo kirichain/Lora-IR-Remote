@@ -61,17 +61,23 @@ const String protocols[128] = {"UNKNOWN", "UNUSED", "RC5", "RC6", "NEC", "SONY",
                                "SANYO_AC152", "DAIKIN312", "GORENJE", "WOWWEE", "CARRIER_AC84", "YORK"
 };
 
-IRac ac(kIrLed);  // Create a A/C object using GPIO to sending messages with.
+IRac ac(kIrLed);  // Create an A/C object using GPIO to sending messages with.
 IRrecv irrecv(kRecvPin, kCaptureBufferSize, kTimeout, true);
+IRsend irsend(kIrLed);
 decode_results results;
 ir_command command;
 StaticJsonDocument<50000> jsonDocCommand;
+StaticJsonDocument<600> jsonDocRaw;
+JsonArray rawArr;
+uint16_t *raw;
 
 String output, jsonCommand, fileContent;
 
 bool isLastReceived = false;
 bool hasState;
-byte pressedCount;
+byte pressCount;
+
+File file;
 
 IrRemote::IrRemote() {
     jsonDocCommand["protocol"] = "";
@@ -127,7 +133,7 @@ void IrRemote::dump() {
         // Display a crude timestamp.
         uint32_t now = millis();
         Serial.printf(D_STR_TIMESTAMP " : %06u.%03u\n", now / 1000, now % 1000);
-        // Check if we got an IR message that was to big for our capture buffer.
+        // Check if we got an IR message that was too big for our capture buffer.
         if (results.overflow)
             Serial.printf(D_WARN_BUFFERFULL "\n", kCaptureBufferSize);
         // Display the library version the message was captured with.
@@ -182,31 +188,72 @@ void IrRemote::sendIrCommand(decode_type_t protocol, float degree, ir_command_ty
             Serial.println(F("Protocol is not supported. Abort sending"));
         }
     } else {
+        char *elementName = NULL;
         Serial.println(F("Unknown protocol. Start sending raw/hex with associated command from stored list"));
-        getSavedIrCommand(commandType);
-        Serial.println(F("Command has been sent"));
+        switch (commandType) {
+            case POWER_ON:
+                elementName = (char *) "powerOnRawArray";
+                break;
+            case POWER_OFF:
+                elementName = (char *) "powerOffRawArray";
+                break;
+            case INCREASE_TEMPERATURE:
+                elementName = (char *) "temperatureIncrementRawArray";
+                break;
+            case DECREASE_TEMPERATURE:
+                elementName = (char *) "temperatureDecrementRawArray";
+                break;
+            case USER_DEFINED_1:
+                elementName = (char *) "userDefined1RawArray";
+                break;
+            case USER_DEFINED_2:
+                elementName = (char *) "userDefined2RawArray";
+                break;
+            case USER_DEFINED_3:
+                elementName = (char *) "userDefined3RawArray";
+                break;
+            case USER_DEFINED_4:
+                elementName = (char *) "userDefined4RawArray";
+                break;
+            case USER_DEFINED_5:
+                break;
+            case USER_DEFINED_6:
+                break;
+            case USER_DEFINED_7:
+                break;
+            case USER_DEFINED_8:
+                break;
+        }
+        if (elementName != nullptr) {
+            if (allocateRawMemory(elementName)) {
+                irsend.sendRaw(raw, rawArr.size(), 38);
+                Serial.println(F("Sent raw data"));
+                delete[] raw;
+                Serial.println(F("Command has been sent"));
+            }
+        }
     }
 }
 
 void IrRemote::learnIrCommand(ir_command_type commandType) {
     Serial.println(F("Start learning new IR command"));
-    Serial.println(F("Waiting for pressing Power On on remote"));
+    Serial.println(F("Waiting for pressing button on remote"));
     bool isReceived = false;
     if (isLastReceived) {
         Serial.print(F("Last received command as raw array: "));
         displayRawArrayAsString();
         isLastReceived = false;
     }
-    if (pressedCount < 3) {
+    if (pressCount < 3) {
         Serial.print(F("Button pressed "));
-        Serial.print(pressedCount);
+        Serial.print(pressCount);
         Serial.println(F(" time"));
-        ++pressedCount;
+        ++pressCount;
     } else {
         Serial.println(F("Reached 3 times. Now start saving command as json string"));
         jsonDocCommand.clear();
-        saveIrCommand(ir_command_type::POWER_ON);
-        pressedCount = 0;
+        saveIrCommand(commandType);
+        pressCount = 0;
     }
     while (!isReceived) {
         // Check if the IR code has been received.
@@ -237,53 +284,55 @@ void IrRemote::learnIrCommand(ir_command_type commandType) {
 
 void IrRemote::saveIrCommand(ir_command_type commandType) {
     jsonDocCommand["protocol"] = typeToString(results.decode_type, false);
+    getRawArrayAsString();
+    rawArr = jsonDocRaw.as<JsonArray>();
     switch (commandType) {
         case POWER_ON:
-            jsonDocCommand["powerOnRawArray"] = getRawArrayAsString();
+            jsonDocCommand["powerOnRawArray"] = rawArr;
             jsonDocCommand["powerOnHex"] = getHexAsString();
             break;
         case POWER_OFF:
-            jsonDocCommand["powerOffRawArray"] = getRawArrayAsString();
+            jsonDocCommand["powerOffRawArray"] = rawArr;
             jsonDocCommand["powerOffHex"] = getHexAsString();
             break;
         case INCREASE_TEMPERATURE:
-            jsonDocCommand["temperatureIncrementRawArray"] = getRawArrayAsString();
+            jsonDocCommand["temperatureIncrementRawArray"] = rawArr;
             jsonDocCommand["temperatureIncrementHex"] = getHexAsString();
             break;
         case DECREASE_TEMPERATURE:
-            jsonDocCommand["temperatureDecrementRawArray"] = getRawArrayAsString();
+            jsonDocCommand["temperatureDecrementRawArray"] = rawArr;
             jsonDocCommand["temperatureDecrementHex"] = getHexAsString();
             break;
         case USER_DEFINED_1:
-            jsonDocCommand["userDefined1RawArray"] = getRawArrayAsString();
+            jsonDocCommand["userDefined1RawArray"] = rawArr;
             jsonDocCommand["userDefined1Hex"] = getHexAsString();
             break;
         case USER_DEFINED_2:
-            jsonDocCommand["userDefined2RawArray"] = getRawArrayAsString();
+            jsonDocCommand["userDefined2RawArray"] = rawArr;
             jsonDocCommand["userDefined2Hex"] = getHexAsString();
             break;
         case USER_DEFINED_3:
-            jsonDocCommand["userDefined3RawArray"] = getRawArrayAsString();
+            jsonDocCommand["userDefined3RawArray"] = rawArr;
             jsonDocCommand["userDefined3Hex"] = getHexAsString();
             break;
         case USER_DEFINED_4:
-            jsonDocCommand["userDefined4RawArray"] = getRawArrayAsString();
+            jsonDocCommand["userDefined4RawArray"] = rawArr;
             jsonDocCommand["userDefined4Hex"] = getHexAsString();
             break;
         case USER_DEFINED_5:
-            jsonDocCommand["userDefined5RawArray"] = getRawArrayAsString();
+            jsonDocCommand["userDefined5RawArray"] = rawArr;
             jsonDocCommand["userDefined5Hex"] = getHexAsString();
             break;
         case USER_DEFINED_6:
-            jsonDocCommand["userDefined6RawArray"] = getRawArrayAsString();
+            jsonDocCommand["userDefined6RawArray"] = rawArr;
             jsonDocCommand["userDefined6Hex"] = getHexAsString();
             break;
         case USER_DEFINED_7:
-            jsonDocCommand["userDefined7RawArray"] = getRawArrayAsString();
+            jsonDocCommand["userDefined7RawArray"] = rawArr;
             jsonDocCommand["userDefined7Hex"] = getHexAsString();
             break;
         case USER_DEFINED_8:
-            jsonDocCommand["userDefined8RawArray"] = getRawArrayAsString();
+            jsonDocCommand["userDefined8RawArray"] = rawArr;
             jsonDocCommand["userDefined8Hex"] = getHexAsString();
             break;
     }
@@ -291,14 +340,25 @@ void IrRemote::saveIrCommand(ir_command_type commandType) {
     serializeJson(jsonDocCommand, jsonCommand);
     Serial.print(F("Serialized json string command:"));
     Serial.println(jsonCommand);
+    Serial.println(F("Start saving command"));
+    if (isFsAvailable((char *)"w")) {
+        writeToFile(jsonCommand);
+    }
 }
 
-void IrRemote::getSavedIrCommand(ir_command_type commandType) {
-    if (isFsAvailable()) {
+void IrRemote::getSavedIrCommands() {
+    if (isFsAvailable((char *)"r")) {
         Serial.println(F("Command storage reading is ok. Start getting command"));
         Serial.println(F("Storage list: "));
         Serial.println(fileContent);
-        deserializeJsonContent(fileContent);
+        deserializeJsonString(fileContent);
+
+        Serial.print(F("Protocol: "));
+        Serial.println(jsonDocCommand["protocol"].as<const char *>());
+        Serial.print(F("Power On Hex: "));
+        Serial.println(jsonDocCommand["powerOnHex"].as<const char *>());
+        Serial.print(F("Power Off Hex: "));
+        Serial.println(jsonDocCommand["powerOffHex"].as<const char *>());
     }
 }
 
@@ -307,33 +367,78 @@ void IrRemote::displayRawArrayAsString() {
     Serial.println(output);
 }
 
-void IrRemote::deserializeJsonContent(String jsonContent) {
+void IrRemote::deserializeJsonString(String jsonString) {
+    jsonDocCommand.clear();
 
+    DeserializationError error = deserializeJson(jsonDocCommand, jsonString);
+
+    if (error) {
+        Serial.print(F("Deserialize json string failed: "));
+        Serial.println(error.f_str());
+        return;
+    } else {
+        Serial.println(F("Deserialize json string successfully"));
+    }
 }
 
-bool isFsAvailable() {
+void IrRemote::writeToFile(String content) {
+    file.print(content);
+    Serial.println(F("Wrote to file"));
+    file.close();
+}
+
+bool IrRemote::allocateRawMemory(char *element) {
+    rawArr = jsonDocCommand[element].as<JsonArray>();
+    Serial.print(element);
+    Serial.print(F(" count: "));
+    Serial.println(rawArr.size());
+    raw = new uint16_t[rawArr.size()];
+    if (raw == nullptr) {
+        Serial.println(F("Out of RAM. Stop sending"));
+        return false;
+    }
+    copyArray(rawArr, raw, rawArr.size());
+    for (int i = 0; i < sizeof(raw) - 1; i++) {
+        Serial.println(raw[i]);
+    }
+    return true;
+}
+
+bool IrRemote::isFsAvailable(char *mode) {
     fileContent = "";
 
-    if(!SPIFFS.begin(true)){
+    if (!SPIFFS.begin(true)) {
         Serial.println("An Error has occurred while mounting SPIFFS");
         return false;
     }
 
-    File file = SPIFFS.open("/test_example.txt");
-    if(!file){
+    file = SPIFFS.open("/data.txt", (char *) mode);
+    if (!file) {
         Serial.println("Failed to open file for reading");
         return false;
     } else {
-        while(file.available()){
-            fileContent += file.read();
+        if (mode == "r") {
+            Serial.println("File Content:");
+            //while (file.available()) {
+            //    Serial.write(file.read());
+            //}
+            while (file.available()) {
+                fileContent += char(file.read());
+            }
+            file.close();
+        } else if (mode == "w") {
+            Serial.println(F("File is opened in writing mode"));
         }
-        file.close();
         return true;
     }
 }
 
+//decode_type_t matchProtocol(char* protocolAsString) {
+
+//}
+
 String IrRemote::getRawArrayAsString() {
-    output = "";
+    output = "[";
     for (uint16_t i = 1; i < results.rawlen; i++) {
         uint32_t usecs;
         for (usecs = results.rawbuf[i] * kRawTick; usecs > UINT16_MAX;
@@ -345,10 +450,12 @@ String IrRemote::getRawArrayAsString() {
                 output += F(",  0, ");
         }
         output += uint64ToString(usecs, 10);
+        jsonDocRaw.add(usecs);
         if (i < results.rawlen - 1)
             output += kCommaSpaceStr;            // ',' not needed on the last one
         if (i % 2 == 0) output += ' ';  // Extra if it was even.
     }
+    output += "]";
     return output;
 }
 
