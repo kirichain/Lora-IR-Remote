@@ -1,31 +1,20 @@
-/*********
-  Rui Santos
-  Complete project details at https://randomnerdtutorials.com  
-*********/
+#include "Arduino.h"
+#include "IrRemote.h"
 
-#include "SPIFFS.h"
- 
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 2
+#endif
+
+IrRemote remote;
+
 void setup() {
-  Serial.begin(115200);
-  
-  if(!SPIFFS.begin(true)){
-    Serial.println("An Error has occurred while mounting SPIFFS");
-    return;
-  }
-  
-  File file = SPIFFS.open("/data.txt");
-  if(!file){
-    Serial.println("Failed to open file for reading");
-    return;
-  }
-  
-  Serial.println("File Content:");
-  while(file.available()){
-    Serial.write(file.read());
-  }
-  file.close();
+    remote.start();
+    //remote.getSavedIrCommands();
+    //remote.sendIrCommand(UNUSED, 0, POWER_ON, AS_RAW);
 }
- 
-void loop() {
 
+void loop() {
+    //remote.dump();
+    remote.learnIrCommand(ir_command_type::POWER_ON, false);
+    remote.learnIrCommand(ir_command_type::POWER_OFF, true);
 }

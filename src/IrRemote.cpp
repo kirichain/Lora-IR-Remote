@@ -224,12 +224,16 @@ void IrRemote::sendIrCommand(decode_type_t protocol, float degree, ir_command_ty
                 elementName = (char *) "userDefined4RawArray";
                 break;
             case USER_DEFINED_5:
+                elementName = (char *) "userDefined5RawArray";
                 break;
             case USER_DEFINED_6:
+                elementName = (char *) "userDefined6RawArray";
                 break;
             case USER_DEFINED_7:
+                elementName = (char *) "userDefined7RawArray";
                 break;
             case USER_DEFINED_8:
+                elementName = (char *) "userDefined8RawArray";
                 break;
         }
         if (elementName != nullptr) {
