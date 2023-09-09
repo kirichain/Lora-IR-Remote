@@ -64,8 +64,11 @@ const String protocols[128] = {"UNKNOWN", "UNUSED", "RC5", "RC6", "NEC", "SONY",
 IRac ac(kIrLed);  // Create an A/C object using GPIO to sending messages with.
 IRrecv irrecv(kRecvPin, kCaptureBufferSize, kTimeout, true);
 IRsend irsend(kIrLed);
+
 decode_results results;
+decode_type_t _protocol;
 ir_command command;
+
 StaticJsonDocument<50000> jsonDocCommand;
 StaticJsonDocument<600> jsonDocRaw;
 JsonArray rawArr;
@@ -75,6 +78,7 @@ String output, jsonCommand, fileContent;
 
 bool isLastReceived = false;
 bool hasState;
+
 byte pressCount;
 
 File file;
@@ -161,8 +165,12 @@ void IrRemote::dump() {
 
 void IrRemote::sendIrCommand(decode_type_t protocol, float degree, ir_command_type commandType,
                              ir_command_sending_option sending_option) {
+    if (protocol == decode_type_t::UNUSED) {
+        Serial.println(F("Unused protocol param set"));
+        protocol = _protocol;
+    }
     if (protocol != decode_type_t::UNKNOWN) {
-        Serial.println(F("Protocol defined. Checking if we can send"));
+        Serial.println(F("Protocol is defined. Checking if we can send"));
         if (ac.isProtocolSupported(protocol)) {
             Serial.println("Protocol " + String(protocol) + " / " +
                            typeToString(protocol) + " is supported.");
@@ -341,24 +349,26 @@ void IrRemote::saveIrCommand(ir_command_type commandType) {
     Serial.print(F("Serialized json string command:"));
     Serial.println(jsonCommand);
     Serial.println(F("Start saving command"));
-    if (isFsAvailable((char *)"w")) {
+    if (isFsAvailable((char *) "w")) {
         writeToFile(jsonCommand);
     }
 }
 
 void IrRemote::getSavedIrCommands() {
-    if (isFsAvailable((char *)"r")) {
+    if (isFsAvailable((char *) "r")) {
         Serial.println(F("Command storage reading is ok. Start getting command"));
         Serial.println(F("Storage list: "));
         Serial.println(fileContent);
-        deserializeJsonString(fileContent);
+        if (deserializeJsonString(fileContent)) {
+            Serial.print(F("Protocol: "));
+            Serial.println(jsonDocCommand["protocol"].as<const char *>());
+            Serial.print(F("Power On Hex: "));
+            Serial.println(jsonDocCommand["powerOnHex"].as<const char *>());
+            Serial.print(F("Power Off Hex: "));
+            Serial.println(jsonDocCommand["powerOffHex"].as<const char *>());
 
-        Serial.print(F("Protocol: "));
-        Serial.println(jsonDocCommand["protocol"].as<const char *>());
-        Serial.print(F("Power On Hex: "));
-        Serial.println(jsonDocCommand["powerOnHex"].as<const char *>());
-        Serial.print(F("Power Off Hex: "));
-        Serial.println(jsonDocCommand["powerOffHex"].as<const char *>());
+            _protocol = matchProtocol((char *) jsonDocCommand["protocol"].as<const char *>());
+        }
     }
 }
 
@@ -367,7 +377,7 @@ void IrRemote::displayRawArrayAsString() {
     Serial.println(output);
 }
 
-void IrRemote::deserializeJsonString(String jsonString) {
+bool IrRemote::deserializeJsonString(String jsonString) {
     jsonDocCommand.clear();
 
     DeserializationError error = deserializeJson(jsonDocCommand, jsonString);
@@ -375,10 +385,11 @@ void IrRemote::deserializeJsonString(String jsonString) {
     if (error) {
         Serial.print(F("Deserialize json string failed: "));
         Serial.println(error.f_str());
-        return;
+        return false;
     } else {
         Serial.println(F("Deserialize json string successfully"));
     }
+    return true;
 }
 
 void IrRemote::writeToFile(String content) {
@@ -433,9 +444,27 @@ bool IrRemote::isFsAvailable(char *mode) {
     }
 }
 
-//decode_type_t matchProtocol(char* protocolAsString) {
+decode_type_t IrRemote::matchProtocol(char *protocolAsString) {
+    byte protocolIndex;
 
-//}
+    Serial.print(F("Matching protocol with string: "));
+    Serial.println((char *) protocolAsString);
+    for (int i = 0; i <= 127; i++) {
+        if (protocols[i] == (char *) protocolAsString) {
+            protocolIndex = i - 1;
+            break;
+        }
+    }
+    for (int i = 0; i != kLastDecodeType; i++) {
+        decode_type_t protocol = (decode_type_t) i;
+        if (protocol == protocolIndex) {
+            Serial.print(F("Matched with index = "));
+            Serial.println(protocol);
+            return protocol;
+        }
+    }
+    return decode_type_t::UNKNOWN;
+}
 
 String IrRemote::getRawArrayAsString() {
     output = "[";

@@ -62,15 +62,15 @@ public:
 
     void displayRawArrayAsString();
 
-    void deserializeJsonString(String jsonString);
-
     void writeToFile(String content);
+
+    bool deserializeJsonString(String jsonString);
 
     bool allocateRawMemory(char *element);
 
     bool isFsAvailable(char *mode);
 
-    //decode_type_t matchProtocol(char* protocolAsString);
+    decode_type_t matchProtocol(char* protocolAsString);
 
     String getRawArrayAsString();
 

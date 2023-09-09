@@ -10,7 +10,7 @@ IrRemote remote;
 void setup() {
     remote.start();
     remote.getSavedIrCommands();
-    remote.sendIrCommand(decode_type_t::UNKNOWN, 0, POWER_ON, AS_RAW);
+    //remote.sendIrCommand(UNUSED, 0, POWER_ON, AS_RAW);
 }
 
 void loop() {
