@@ -54,9 +54,9 @@ public:
     void sendIrCommand(decode_type_t protocol, float degree, ir_command_type commandType,
                        ir_command_sending_option sending_option);
 
-    void learnIrCommand(ir_command_type commandType);
+    void learnIrCommand(ir_command_type commandType, bool isSavedAfterLearning);
 
-    void saveIrCommand(ir_command_type commandType);
+    void saveIrCommand(ir_command_type commandType, bool isClearedAfterSaving);
 
     void getSavedIrCommands();
 

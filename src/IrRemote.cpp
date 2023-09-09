@@ -243,54 +243,60 @@ void IrRemote::sendIrCommand(decode_type_t protocol, float degree, ir_command_ty
     }
 }
 
-void IrRemote::learnIrCommand(ir_command_type commandType) {
+void IrRemote::learnIrCommand(ir_command_type commandType, bool isSavedAfterLearning) {
     Serial.println(F("Start learning new IR command"));
     Serial.println(F("Waiting for pressing button on remote"));
-    bool isReceived = false;
-    if (isLastReceived) {
-        Serial.print(F("Last received command as raw array: "));
-        displayRawArrayAsString();
-        isLastReceived = false;
-    }
-    if (pressCount < 3) {
-        Serial.print(F("Button pressed "));
-        Serial.print(pressCount);
-        Serial.println(F(" time"));
-        ++pressCount;
-    } else {
-        Serial.println(F("Reached 3 times. Now start saving command as json string"));
-        jsonDocCommand.clear();
-        saveIrCommand(commandType);
-        pressCount = 0;
-    }
-    while (!isReceived) {
-        // Check if the IR code has been received.
-        if (irrecv.decode(&results)) {
-            isLastReceived = true;
-            hasState = hasACState(results.decode_type);
-            // The capture has stopped at this point.
-            decode_type_t protocol = results.decode_type;
-            if (protocol == decode_type_t::UNKNOWN) {
-                Serial.println(F("Unknown protocol. Will save raw data"));
-            } else {
-                Serial.println("Protocol: " + typeToString(protocol, false));
-            }
-            Serial.print(F("Raw data: "));
+    while (pressCount < 3) {
+        bool isReceived = false;
+
+        if (isLastReceived) {
+            Serial.print(F("Last received command as raw array: "));
             displayRawArrayAsString();
+            isLastReceived = false;
+        }
 
-            Serial.print(F("Command as HEX: 0x"));
-            output = uint64ToString(results.command, 16);
-            Serial.println(output);
+        while (!isReceived) {
+            // Check if the IR code has been received.
+            if (irrecv.decode(&results)) {
+                ++pressCount;
+                Serial.print(F("Button pressed "));
+                Serial.print(pressCount);
+                Serial.println(F(" time"));
 
-            yield();  // Feed the WDT as the text output can take a while to print.
-            // Output the results as source code
-            isReceived = true;
-            yield();             // Feed the WDT (again)
+                isLastReceived = true;
+                hasState = hasACState(results.decode_type);
+                // The capture has stopped at this point.
+                decode_type_t protocol = results.decode_type;
+                if (protocol == decode_type_t::UNKNOWN) {
+                    Serial.println(F("Unknown protocol. Will save raw data"));
+                } else {
+                    Serial.println("Protocol: " + typeToString(protocol, false));
+                }
+                Serial.print(F("Raw data: "));
+                displayRawArrayAsString();
+
+                Serial.print(F("Command as HEX: 0x"));
+                output = uint64ToString(results.command, 16);
+                Serial.println(output);
+
+                yield();  // Feed the WDT as the text output can take a while to print.
+                // Output the results as source code
+                isReceived = true;
+                yield();             // Feed the WDT (again)
+            }
         }
     }
+    if (isSavedAfterLearning) {
+        Serial.println(F("Reached 3 times. Now start saving command as json string to file"));
+        saveIrCommand(commandType, true);
+    } else {
+        Serial.println(F("Reached 3 times. Learning completes"));
+        saveIrCommand(commandType, false);
+    }
+    pressCount = 0;
 }
 
-void IrRemote::saveIrCommand(ir_command_type commandType) {
+void IrRemote::saveIrCommand(ir_command_type commandType, bool isClearedAfterSaving) {
     jsonDocCommand["protocol"] = typeToString(results.decode_type, false);
     getRawArrayAsString();
     rawArr = jsonDocRaw.as<JsonArray>();
@@ -348,9 +354,15 @@ void IrRemote::saveIrCommand(ir_command_type commandType) {
     serializeJson(jsonDocCommand, jsonCommand);
     Serial.print(F("Serialized json string command:"));
     Serial.println(jsonCommand);
-    Serial.println(F("Start saving command"));
-    if (isFsAvailable((char *) "w")) {
-        writeToFile(jsonCommand);
+
+    if (isClearedAfterSaving) {
+        Serial.println(F("Start saving command to file"));
+
+        if (isFsAvailable((char *) "w")) {
+            writeToFile(jsonCommand);
+        }
+
+        jsonDocCommand.clear();
     }
 }
 
